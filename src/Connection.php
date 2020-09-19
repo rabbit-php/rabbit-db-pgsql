@@ -14,7 +14,7 @@ use Rabbit\DB\ConnectionInterface;
 class Connection extends \Rabbit\DB\Connection implements ConnectionInterface
 {
     public array $schemaMap = [
-        'pgsql'
+        'pgsql' => Schema::class
     ];
 
     /**
