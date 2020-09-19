@@ -1,0 +1,32 @@
+{
+  "name": "rabbit/db-pgsql",
+  "description": "rabbit db-pgsql base on yiisoft/db-pgsql.",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "albert",
+      "email": "63851587@qq.com"
+    }
+  ],
+  "require": {
+    "php": ">=7.4.0",
+    "ext-swoole": ">=4.5.0",
+    "rabbit/base": "dev-master",
+    "rabbit/pool": "dev-master",
+    "rabbit/db": "dev-master",
+    "rabbit/cache": "dev-master",
+    "ext-swoole_postgresql": "*",
+    "ext-json": "*",
+    "ext-sockets": "*"
+  },
+  "require-dev": {
+    "swoole/ide-helper": "@dev",
+    "phpunit/phpunit": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Rabbit\\DB\\Pgsql\\": "src/"
+    }
+  }
+}
