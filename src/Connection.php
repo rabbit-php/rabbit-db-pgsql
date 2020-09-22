@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Rabbit\DB\Pgsql;
 
-use Rabbit\Base\Helper\ArrayHelper;
 use Rabbit\DB\ConnectionInterface;
+use Rabbit\Base\Helper\ArrayHelper;
 
 /**
  * Class Connection
@@ -13,6 +13,8 @@ use Rabbit\DB\ConnectionInterface;
  */
 class Connection extends \Rabbit\DB\Connection implements ConnectionInterface
 {
+    protected string $commandClass = Command::class;
+    public ?string $serverVersion = null;
     public array $schemaMap = [
         'pgsql' => Schema::class
     ];
@@ -45,8 +47,9 @@ class Connection extends \Rabbit\DB\Connection implements ConnectionInterface
         foreach ($query as $key => $value) {
             $parts[] = "$key=$value";
         }
-        $dsn = "host=$host;port=$port;user=$this->username;password=$this->password;" . implode(';', $parts);
+        $dsn = "host=$host port=$port user=$this->username password=$this->password " . implode(' ', $parts);
         $pdo = new \Swoole\Coroutine\PostgreSQL($dsn);
+        $this->serverVersion = (string)$pdo->getVersion();
         return $pdo;
     }
 }

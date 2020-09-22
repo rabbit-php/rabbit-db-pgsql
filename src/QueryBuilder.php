@@ -5,31 +5,31 @@ declare(strict_types=1);
 namespace Rabbit\DB\Pgsql;
 
 use PDO;
-use Rabbit\Base\Exception\InvalidArgumentException;
-use Rabbit\Base\Helper\StringHelper;
-use Rabbit\DB\ArrayExpression;
-use Rabbit\DB\Expression;
-use Rabbit\DB\ExpressionInterface;
-use Rabbit\DB\JsonExpression;
-use Rabbit\DB\PdoValue;
-use Rabbit\DB\Query;
-use Rabbit\DB\QueryBuilder as DBQueryBuilder;
-
-use function array_diff;
-use function array_merge;
-use function array_unshift;
 use function count;
+use function reset;
+use function strpos;
+use Rabbit\DB\Query;
 use function explode;
 use function implode;
 use function is_bool;
-use function is_float;
-use function is_string;
-use function preg_match;
-use function preg_replace;
-use function reset;
-use function strpos;
 use function strrpos;
+use function is_float;
+
+use function is_string;
+use Rabbit\DB\PdoValue;
+use function array_diff;
+use function preg_match;
+use function array_merge;
+use Rabbit\DB\Expression;
+use function preg_replace;
+use function array_unshift;
 use function version_compare;
+use Rabbit\DB\JsonExpression;
+use Rabbit\DB\ArrayExpression;
+use Rabbit\DB\ExpressionInterface;
+use Rabbit\Base\Helper\StringHelper;
+use Rabbit\DB\QueryBuilder as DBQueryBuilder;
+use Rabbit\Base\Exception\InvalidArgumentException;
 
 final class QueryBuilder extends DBQueryBuilder
 {
@@ -429,7 +429,7 @@ final class QueryBuilder extends DBQueryBuilder
         if (!is_bool($updateColumns)) {
             $updateColumns = $this->normalizeTableRowData($table, $updateColumns);
         }
-        if (version_compare($this->db->getServerVersion(), '9.5', '<')) {
+        if (version_compare($this->db->getServerVersion(), '95000', '<')) {
             return $this->oldUpsert($table, $insertColumns, $updateColumns, $params);
         }
 

@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Rabbit\DB\Pgsql;
 
-use Rabbit\Base\Helper\ArrayHelper;
-use Rabbit\DB\CheckConstraint;
 use Rabbit\DB\Constraint;
-use Rabbit\DB\ConstraintFinderInterface;
-use Rabbit\DB\ConstraintFinderTrait;
-use Rabbit\DB\ForeignKeyConstraint;
+use Rabbit\DB\Expression;
+use Rabbit\DB\CheckConstraint;
 use Rabbit\DB\IndexConstraint;
 use Rabbit\DB\Schema as DBSchema;
+use Rabbit\DB\ColumnSchemaBuilder;
+use Rabbit\Base\Helper\ArrayHelper;
+use Rabbit\DB\ForeignKeyConstraint;
+use Rabbit\DB\ConstraintFinderTrait;
+use Rabbit\DB\ConstraintFinderInterface;
+use Rabbit\Base\Exception\NotSupportedException;
 
 class Schema extends DBSchema implements ConstraintFinderInterface
 {
@@ -20,7 +23,7 @@ class Schema extends DBSchema implements ConstraintFinderInterface
     protected string $builderClass = QueryBuilder::class;
     public const TYPE_JSONB = 'jsonb';
     protected ?string $defaultSchema = 'public';
-    protected $tableQuoteCharacter = '"';
+    protected string $tableQuoteCharacter = '"';
     private array $typeMap = [
         'bit' => self::TYPE_INTEGER,
         'bit varying' => self::TYPE_INTEGER,
@@ -98,16 +101,14 @@ class Schema extends DBSchema implements ConstraintFinderInterface
         $parts = explode('.', str_replace('"', '', $name));
 
         if (isset($parts[1])) {
-            $resolvedName->schemaName($parts[0]);
-            $resolvedName->name($parts[1]);
+            $resolvedName->schemaName = $parts[0];
+            $resolvedName->name = $parts[1];
         } else {
-            $resolvedName->schemaName($this->defaultSchema);
-            $resolvedName->name($name);
+            $resolvedName->schemaName = $this->defaultSchema;
+            $resolvedName->name = $name;
         }
 
-        $resolvedName->fullName(
-            ($resolvedName->getSchemaName() !== $this->defaultSchema ? $resolvedName->getSchemaName() . '.' : '') . $resolvedName->getName()
-        );
+        $resolvedName->fullName = ($resolvedName->schemaName !== $this->defaultSchema ? $resolvedName->schemaName . '.' : '') . $resolvedName->name;
 
         return $resolvedName;
     }
@@ -204,8 +205,8 @@ SQL;
         $resolvedName = $this->resolveTableName($tableName);
 
         $indexes = $this->db->createCommand($sql, [
-            $resolvedName->getSchemaName(),
-            $resolvedName->getName(),
+            $resolvedName->schemaName,
+            $resolvedName->name,
         ])->queryAll();
 
         $indexes = $this->normalizePdoRowKeyCase($indexes, true);
@@ -245,15 +246,15 @@ SQL;
         $parts = explode('.', str_replace('"', '', $name));
 
         if (isset($parts[1])) {
-            $table->schemaName($parts[0]);
-            $table->name($parts[1]);
+            $table->schemaName = $parts[0];
+            $table->name = $parts[1];
         } else {
-            $table->schemaName($this->defaultSchema);
-            $table->name($parts[0]);
+            $table->schemaName = $this->defaultSchema;
+            $table->name = $parts[0];
         }
 
-        $table->fullName($table->getSchemaName() !== $this->defaultSchema ? $table->getSchemaName() . '.'
-            . $table->getName() : $table->getName());
+        $table->fullName = $table->schemaName !== $this->defaultSchema ? $table->schemaName . '.'
+            . $table->name : $table->name;
     }
 
     protected function findViewNames(string $schema = ''): array
@@ -275,8 +276,8 @@ SQL;
 
     protected function findConstraints(TableSchema $table)
     {
-        $tableName = $this->quoteValue($table->getName());
-        $tableSchema = $this->quoteValue($table->getSchemaName());
+        $tableName = $this->quoteValue($table->name);
+        $tableSchema = $this->quoteValue($table->schemaName);
         $sql = <<<SQL
 select
     ct.conname as constraint_name,
@@ -328,7 +329,7 @@ SQL;
         }
     }
 
-    protected function getUniqueIndexInformation(TableSchema $table): array
+    protected function getUniqueIndexInformation(\Rabbit\DB\TableSchema $table): array
     {
         $sql = <<<'SQL'
 SELECT
@@ -347,8 +348,8 @@ ORDER BY i.relname, k
 SQL;
 
         return $this->db->createCommand($sql, [
-            $table->getSchemaName(),
-            $table->getName(),
+            $table->schemaName,
+            $table->name,
         ])->queryAll();
     }
     /**
@@ -356,7 +357,7 @@ SQL;
      * @param [type] $table
      * @return array
      */
-    public function findUniqueIndexes($table): array
+    public function findUniqueIndexes(\Rabbit\DB\TableSchema $table): array
     {
         $uniqueIndexes = [];
 
@@ -379,12 +380,12 @@ SQL;
      */
     protected function findColumns(TableSchema $table): bool
     {
-        $tableName = $this->db->quoteValue($table->getName());
-        $schemaName = $this->db->quoteValue($table->getSchemaName());
+        $tableName = $this->db->quoteValue($table->name);
+        $schemaName = $this->db->quoteValue($table->schemaName);
 
         $orIdentity = '';
 
-        if (version_compare($this->db->getServerVersion(), '12.0', '>=')) {
+        if (version_compare($this->db->getServerVersion(), '120000', '>=')) {
             $orIdentity = 'OR a.attidentity != \'\'';
         }
 
@@ -445,13 +446,13 @@ FROM
     LEFT JOIN pg_constraint ct ON ct.conrelid = c.oid AND ct.contype = 'p'
 WHERE
     a.attnum > 0 AND t.typname != '' AND NOT a.attisdropped
-    AND c.relname = {$tableName}
-    AND d.nspname = {$schemaName}
+    AND c.relname = $1
+    AND d.nspname = $2
 ORDER BY
     a.attnum;
 SQL;
 
-        $columns = $this->db->createCommand($sql)->queryAll();
+        $columns = $this->db->createCommand($sql, [$tableName, $schemaName])->queryAll();
 
         if (empty($columns)) {
             return false;
@@ -460,42 +461,42 @@ SQL;
         foreach ($columns as $column) {
 
             $column = $this->loadColumnSchema($column);
-            $table->columns($column->getName(), $column);
+            $table->columns[$column->name] = $column;
 
-            if ($column->isPrimaryKey()) {
-                $table->primaryKey($column->getName());
+            if ($column->isPrimaryKey) {
+                $table->primaryKey[] = $column->name;
 
-                if ($table->getSequenceName() === null) {
-                    $table->sequenceName($column->getSequenceName());
+                if ($table->sequenceName === null) {
+                    $table->sequenceName = $column->sequenceName;
                 }
 
-                $column->defaultValue(null);
-            } elseif ($column->getDefaultValue()) {
+                $column->defaultValue = null;
+            } elseif ($column->defaultValue) {
                 if (
-                    in_array($column->getType(), [self::TYPE_TIMESTAMP, self::TYPE_DATE, self::TYPE_TIME], true) &&
+                    in_array($column->type, [self::TYPE_TIMESTAMP, self::TYPE_DATE, self::TYPE_TIME], true) &&
                     in_array(
-                        strtoupper($column->getDefaultValue()),
+                        strtoupper($column->defaultValue),
                         ['NOW()', 'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME'],
                         true
                     )
                 ) {
-                    $column->defaultValue(new Expression($column->getDefaultValue()));
-                } elseif ($column->getType() === 'boolean') {
-                    $column->defaultValue(($column->getDefaultValue() === 'true'));
-                } elseif (preg_match("/^B'(.*?)'::/", $column->getDefaultValue(), $matches)) {
-                    $column->defaultValue(bindec($matches[1]));
-                } elseif (preg_match("/^'(\d+)'::\"bit\"$/", $column->getDefaultValue(), $matches)) {
-                    $column->defaultValue(bindec($matches[1]));
-                } elseif (preg_match("/^'(.*?)'::/", $column->getDefaultValue(), $matches)) {
-                    $column->defaultValue($column->phpTypecast($matches[1]));
-                } elseif (preg_match('/^(\()?(.*?)(?(1)\))(?:::.+)?$/', $column->getDefaultValue(), $matches)) {
+                    $column->defaultValue = new Expression($column->defaultValue);
+                } elseif ($column->type === 'boolean') {
+                    $column->defaultValue = $column->defaultValue === 'true';
+                } elseif (preg_match("/^B'(.*?)'::/", $column->defaultValue, $matches)) {
+                    $column->defaultValue = bindec($matches[1]);
+                } elseif (preg_match("/^'(\d+)'::\"bit\"$/", $column->defaultValue, $matches)) {
+                    $column->defaultValue = bindec($matches[1]);
+                } elseif (preg_match("/^'(.*?)'::/", $column->defaultValue, $matches)) {
+                    $column->defaultValue = $column->phpTypecast($matches[1]);
+                } elseif (preg_match('/^(\()?(.*?)(?(1)\))(?:::.+)?$/', $column->defaultValue, $matches)) {
                     if ($matches[2] === 'NULL') {
-                        $column->defaultValue(null);
+                        $column->defaultValue = null;
                     } else {
-                        $column->defaultValue($column->phpTypecast($matches[2]));
+                        $column->defaultValue = $column->phpTypecast($matches[2]);
                     }
                 } else {
-                    $column->defaultValue($column->phpTypecast($column->getDefaultValue()));
+                    $column->defaultValue = $column->phpTypecast($column->defaultValue);
                 }
             }
         }
@@ -507,27 +508,27 @@ SQL;
     {
         /** @var ColumnSchema $column */
         $column = $this->createColumnSchema();
-        $column->allowNull($info['is_nullable']);
-        $column->autoIncrement($info['is_autoinc']);
-        $column->comment($info['column_comment']);
-        $column->dbType($info['data_type']);
-        $column->defaultValue($info['column_default']);
-        $column->enumValues(($info['enum_values'] !== null)
-            ? explode(',', str_replace(["''"], ["'"], $info['enum_values'])) : null);
-        $column->unsigned(false); // has no meaning in PG
-        $column->primaryKey((bool) $info['is_pkey']);
-        $column->name($info['column_name']);
-        $column->precision($info['numeric_precision']);
-        $column->scale($info['numeric_scale']);
-        $column->size($info['size'] === null ? null : (int) $info['size']);
-        $column->dimension((int) $info['dimension']);
+        $column->allowNull = $info['is_nullable'];
+        $column->autoIncrement = $info['is_autoinc'];
+        $column->comment = $info['column_comment'];
+        $column->dbType = $info['data_type'];
+        $column->defaultValue = $info['column_default'];
+        $column->enumValues = ($info['enum_values'] !== null)
+            ? explode(',', str_replace(["''"], ["'"], $info['enum_values'])) : null;
+        $column->unsigned = false; // has no meaning in PG
+        $column->primaryKey = (bool) $info['is_pkey'];
+        $column->name = $info['column_name'];
+        $column->precision = $info['numeric_precision'];
+        $column->scale = $info['numeric_scale'];
+        $column->size = $info['size'] === null ? null : (int) $info['size'];
+        $column->dimension = (int) $info['dimension'];
 
         /**
          * pg_get_serial_sequence() doesn't track DEFAULT value change. GENERATED BY IDENTITY columns always have null
          * default value.
          */
 
-        $defaultValue = $column->getDefaultValue();
+        $defaultValue = $column->defaultValue;
         if (
             isset($defaultValue) &&
             preg_match("/nextval\\('\"?\\w+\"?\.?\"?\\w+\"?'(::regclass)?\\)/", $defaultValue) === 1
@@ -538,25 +539,25 @@ SQL;
                 $defaultValue
             ));
         } elseif (isset($info['sequence_name'])) {
-            $column->sequenceName($this->resolveTableName($info['sequence_name'])->getFullName());
+            $column->sequenceName($this->resolveTableName($info['sequence_name'])->fullName);
         }
 
-        if (isset($this->typeMap[$column->getDbType()])) {
-            $column->type($this->typeMap[$column->getDbType()]);
+        if (isset($this->typeMap[$column->dbType])) {
+            $column->type = $this->typeMap[$column->dbType];
         } else {
-            $column->type(self::TYPE_STRING);
+            $column->type = self::TYPE_STRING;
         }
 
-        $column->phpType($this->getColumnPhpType($column));
+        $column->phpType = $this->getColumnPhpType($column);
 
         return $column;
     }
 
-    public function insert(string $table, array $columns)
+    public function insert(string $table, array $columns): ?array
     {
         $params = [];
         $sql = $this->db->getQueryBuilder()->insert($table, $columns, $params);
-        $returnColumns = $this->getTableSchema($table)->getPrimaryKey();
+        $returnColumns = $this->getTableSchema($table)->primaryKey;
 
         if (!empty($returnColumns)) {
             $returning = [];
@@ -570,7 +571,7 @@ SQL;
         $command->prepare(false);
         $result = $command->queryOne();
 
-        return !$command->getPdoStatement()->rowCount() ? false : $result;
+        return !$command->getPdoStatement()->rowCount() ? null : $result;
     }
 
     private function loadTableConstraints(string $tableName, string $returnType)
@@ -613,8 +614,8 @@ SQL;
 
         $resolvedName = $this->resolveTableName($tableName);
         $constraints = $this->db->createCommand($sql, [
-            $resolvedName->getSchemaName(),
-            $resolvedName->getName(),
+            $resolvedName->schemaName,
+            $resolvedName->name,
         ])->queryAll();
         $constraints = $this->normalizePdoRowKeyCase($constraints, true);
         $constraints = ArrayHelper::index($constraints, null, ['type', 'name']);
@@ -674,14 +675,24 @@ SQL;
         return $result[$returnType];
     }
 
-    /**
-     * @author Albert <63851587@qq.com>
-     * @param string $type
-     * @param [type] $length
-     * @return ColumnSchemaBuilder
-     */
     public function createColumnSchemaBuilder(string $type, $length = null): ColumnSchemaBuilder
     {
         return new ColumnSchemaBuilder($type, $length, $this->db);
+    }
+
+    public function quoteValue(string $str): string
+    {
+        // the driver doesn't support quote (e.g. oci)
+        return "'" . addcslashes(str_replace("'", "''", $str), "\000\n\r\\\032") . "'";
+    }
+
+    public function getServerVersion(): string
+    {
+        if ($this->db->serverVersion !== null) {
+            return $this->db->serverVersion;
+        }
+        $pdo = $this->db->getSlavePdo();
+        $this->db->release();
+        return $this->db->serverVersion;
     }
 }

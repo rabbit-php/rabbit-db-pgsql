@@ -8,8 +8,6 @@ use Rabbit\DB\TableSchema as DBTableSchema;
 
 final class TableSchema extends DBTableSchema
 {
-    private array $foreignKeys = [];
-
     /**
      * @return array foreign keys of this table. Each array element is of the following structure:
      *
